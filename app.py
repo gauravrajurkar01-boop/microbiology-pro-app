@@ -4,65 +4,87 @@ import requests
 st.set_page_config(page_title="Microbiology PhD Assistant", layout="wide")
 st.title("🔬 Clinical Microbiology Research Suite")
 
-# Sidebar for Free Keys
+# --- SIDEBAR SETTINGS ---
 with st.sidebar:
-    st.header("Settings")
-    st.markdown("1. Get Groq Key: [console.groq.com](https://console.groq.com)")
-    st.markdown("2. Get HF Token: [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens)")
-    groq_key = st.text_input("Groq API Key (Auto-complete)", type="password")
-    hf_token = st.text_input("Hugging Face Token (AI Detection)", type="password")
+    st.header("🔑 API Configuration")
+    st.markdown("Get keys: [Groq (Free)](https://console.groq.com) | [HF (Free)](https://huggingface.co/settings/tokens)")
+    
+    # Check if keys exist in Streamlit Secrets, otherwise use empty string
+    default_groq = st.secrets.get("groq_key", "")
+    default_hf = st.secrets.get("hf_token", "")
+    
+    user_groq = st.text_input("Groq API Key (starts with gsk_)", value=default_groq, type="password")
+    user_hf = st.text_input("Hugging Face Token (starts with hf_)", value=default_hf, type="password")
+    
+    st.info("Note: If you saved keys in 'Secrets', they will appear here as dots.")
 
-tab1, tab2, tab3 = st.tabs(["📝 AI Writer", "🔎 Literature", "🛡️ Integrity"])
+tab1, tab2, tab3 = st.tabs(["📝 AI Writer (Jenni Style)", "🔎 Literature Search", "🛡️ Integrity Check"])
 
+# --- TAB 1: AI WRITER ---
 with tab1:
-    st.subheader("Academic Writing & Polish")
-    text = st.text_area("Write your draft here...", height=300)
+    st.subheader("Academic Writing Assistant")
+    text_input = st.text_area("Start your clinical draft here...", height=300)
+    
     if st.button("Jenni AI: Auto-complete Next Paragraph"):
-        if groq_key:
-            headers = {"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"}
-            data = {"model": "llama3-8b-8192", "messages": [
-                {"role": "system", "content": "You are an expert PhD in Clinical Microbiology. Use Lancet Microbe style. Ensure correct binomial nomenclature (e.g. S Typhi in italics)."},
-                {"role": "user", "content": text}
-            ]}
-            try:
-                res = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=data).json()
-                st.write("### Suggested Addition:")
-                st.info(res['choices'][0]['message']['content'])
-            except:
-                st.error("Error connecting to Groq. Check your key.")
-        else: st.error("Add Groq Key in Sidebar")
-
-with tab2:
-    st.subheader("Semantic Scholar Research")
-    q = st.text_input("Search (e.g., S. Typhi XDR Pakistan)")
-    if st.button("Search"):
-        res = requests.get(f"https://api.semanticscholar.org/graph/v1/paper/search?query={q}&limit=5&fields=title,url,year,abstract")
-        data = res.json()
-        for p in data.get('data', []):
-            st.markdown(f"**{p['title']} ({p['year']})**  \n[View Paper]({p['url']})")
-            st.caption(p['abstract'][:250] + "...")
-
-with tab3:
-    st.subheader("AI Detection (Hugging Face Free API)")
-    check = st.text_area("Paste text to check for AI content...", height=200)
-    if st.button("Run Integrity Check"):
-        if hf_token:
-            # Using the RoBERTa-base detector (highly accurate for academic text)
-            API_URL = "https://api-inference.huggingface.co/models/Hello-SimpleAI/chatgpt-detector-roberta"
-            headers = {"Authorization": f"Bearer {hf_token}"}
-            
-            response = requests.post(API_URL, headers=headers, json={"inputs": check})
-            result = response.json()
+        if not user_groq:
+            st.error("⚠️ Error: Groq Key is missing. Please paste it in the sidebar.")
+        else:
+            headers = {
+                "Authorization": f"Bearer {user_groq.strip()}",
+                "Content-Type": "application/json"
+            }
+            data = {
+                "model": "llama3-8b-8192",
+                "messages": [
+                    {"role": "system", "content": "You are a PhD in Clinical Microbiology. Write in formal academic tone for a Q1 journal. Use Lancet style (middle dots for decimals, italics for S Typhi)."},
+                    {"role": "user", "content": f"Continue this text: {text_input}"}
+                ],
+                "temperature": 0.5
+            }
             
             try:
-                # The model returns nested lists. We look for the ChatGPT score.
-                ai_data = result[0]
-                ai_score = next(item for item in ai_data if item["label"] == "ChatGPT")["score"]
-                st.metric("AI Probability", f"{round(ai_score * 100, 2)}%")
-                if ai_score > 0.5:
-                    st.warning("High AI Probability. Consider manual rewriting.")
+                response = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=data)
+                if response.status_code == 200:
+                    result = response.json()
+                    st.write("### Suggested Addition:")
+                    st.info(result['choices'][0]['message']['content'])
+                elif response.status_code == 401:
+                    st.error("❌ Key Error: The Groq key you provided is invalid. Go to Groq and make a new one.")
                 else:
-                    st.success("Text appears Human-Written.")
+                    st.error(f"❌ Connection Error: Server responded with {response.status_code}")
+            except Exception as e:
+                st.error(f"❌ Critical Error: {str(e)}")
+
+# --- TAB 2: LITERATURE ---
+with tab2:
+    st.subheader("Semantic Scholar Search")
+    query = st.text_input("Keywords (e.g. S Typhi biofilm resistance)")
+    if st.button("Search Papers"):
+        try:
+            res = requests.get(f"https://api.semanticscholar.org/graph/v1/paper/search?query={query}&limit=5&fields=title,url,year,abstract")
+            data = res.json()
+            for p in data.get('data', []):
+                st.markdown(f"**{p['title']} ({p['year']})**  \n[View Paper]({p['url']})")
+                st.caption(p.get('abstract', 'No abstract available')[:300] + "...")
+        except:
+            st.error("Could not connect to literature database.")
+
+# --- TAB 3: INTEGRITY ---
+with tab3:
+    st.subheader("AI Content Detector")
+    check_text = st.text_area("Paste text to analyze...", height=200)
+    if st.button("Run Detection"):
+        if not user_hf:
+            st.error("⚠️ Error: Hugging Face Token is missing in the sidebar.")
+        else:
+            API_URL = "https://api-inference.huggingface.co/models/Hello-SimpleAI/chatgpt-detector-roberta"
+            headers = {"Authorization": f"Bearer {user_hf.strip()}"}
+            try:
+                response = requests.post(API_URL, headers=headers, json={"inputs": check_text})
+                output = response.json()
+                # Extract ChatGPT score
+                scores = output[0]
+                ai_score = next(item for item in scores if item["label"] == "ChatGPT")["score"]
+                st.metric("AI Probability", f"{round(ai_score * 100, 2)}%")
             except:
-                st.error("Model is waking up. Please wait 30 seconds and try again.")
-        else: st.error("Add Hugging Face Token in Sidebar")
+                st.error("The detector model is loading. Please wait 20 seconds and try again.")
