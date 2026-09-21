@@ -5,20 +5,29 @@ import json
 st.set_page_config(page_title="Microbiology PhD Assistant", layout="wide")
 st.title("🔬 Clinical Microbiology Research Suite")
 
-# --- SIDEBAR SETTINGS ---
+# --- SIDEBAR: DYNAMIC MODEL FETCHING ---
 with st.sidebar:
     st.header("🔑 API Configuration")
     user_groq = st.text_input("Groq API Key (gsk_...)", value=st.secrets.get("groq_key", ""), type="password")
     user_hf = st.text_input("Hugging Face Token (hf_...)", value=st.secrets.get("hf_token", ""), type="password")
     
     st.divider()
-    st.subheader("🤖 Model Selection")
-    # If one model gives a 404, you can just pick another from this list!
-    model_choice = st.selectbox(
-        "If you get a 404 error, switch models here:",
-        ["llama-3.1-8b-instant", "llama3-70b-8192", "llama3-8b-8192", "mixtral-8x7b-32768"]
-    )
-    st.caption("Suggested: 'llama-3.1-8b-instant' is currently the most stable.")
+    st.subheader("🤖 AI Model Selection")
+    
+    # MAGIC FIX: This part asks Groq "What models do I have?"
+    model_list = ["llama-3.1-8b-instant"] # Default fallback
+    if user_groq:
+        try:
+            headers = {"Authorization": f"Bearer {user_groq.strip()}"}
+            m_res = requests.get("https://api.groq.com/openai/v1/models", headers=headers)
+            if m_res.status_code == 200:
+                available_models = [m['id'] for m in m_res.json()['data'] if 'vision' not in m['id']]
+                model_list = available_models
+        except:
+            pass
+            
+    model_choice = st.selectbox("Select an active model:", model_list)
+    st.caption("The list above is automatically fetched from your account to prevent 404 errors.")
 
 tab1, tab2, tab3 = st.tabs(["📝 AI Writer (Jenni Style)", "🔎 Literature Search", "🛡️ Integrity Check"])
 
@@ -43,7 +52,7 @@ with tab1:
                     {"role": "system", "content": "You are a Senior Clinical Microbiologist. Write in formal academic tone for a Q1 journal (Lancet style). Italicize species names (e.g., S Typhi)."},
                     {"role": "user", "content": f"Continue the following research text: {text_input}"}
                 ],
-                "temperature": 0.6
+                "temperature": 0.5
             }
             
             try:
@@ -57,14 +66,13 @@ with tab1:
                 else:
                     err = response.json().get('error', {}).get('message', 'Unknown Error')
                     st.error(f"❌ Error {response.status_code}: {err}")
-                    st.info("💡 TIP: If it says 'Model not found', change the 'Model Selection' in the sidebar.")
             except Exception as e:
                 st.error(f"❌ Connection failed: {str(e)}")
 
 # --- TAB 2: LITERATURE ---
 with tab2:
     st.subheader("Semantic Scholar Search")
-    query = st.text_input("Keywords (e.g., S. Typhi XDR)")
+    query = st.text_input("Keywords (e.g., S. Typhi AMR Pakistan)")
     if st.button("Search Papers"):
         try:
             res = requests.get(f"https://api.semanticscholar.org/graph/v1/paper/search?query={query}&limit=5&fields=title,url,year,abstract")
